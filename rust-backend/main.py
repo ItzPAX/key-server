@@ -1,18 +1,52 @@
+import threading
 import time
 import hashlib
 import uuid
 import base64
-import json
+import sqlite3
 from fastapi import FastAPI
 from pydantic import BaseModel
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 from typing import Dict, List
 
-key_data = {
-    "KEY-1": 1736194472,
-    "KEY-2": 1736194472,
-}
+# Database file path
+DATABASE_FILE = "keys.db"
+
+def initialize_database():
+    """Initialize the database and create the keys table if it doesn't exist."""
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS keys (
+            key TEXT PRIMARY KEY,
+            value INTEGER
+        )
+        """)
+        conn.commit()
+
+def save_key_data(key_data):
+    """Save the key data to the database."""
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        for key, value in key_data.items():
+            cursor.execute("""
+            INSERT INTO keys (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """, (key, value))
+        conn.commit()
+
+def load_key_data():
+    """Load the key data from the database."""
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM keys")
+        data = cursor.fetchall()
+        return {key: value for key, value in data}
+
+initialize_database()
+key_data = load_key_data()
 
 sessions: List[Dict] = []
 
@@ -77,6 +111,25 @@ def update_sessions():
 def clear_used_challenges():
     deactivated_challenges.clear()
     activated_challenges.clear()
+
+# run every second to pull new key data into db
+def update_key_data():
+    global key_data
+    key_data = load_key_data()
+
+# wrapper to run the background functions
+def run_periodically(interval, func):
+    def wrapper():
+        while True:
+            func()
+            time.sleep(interval)
+    
+    thread = threading.Thread(target=wrapper, daemon=True)
+    thread.start()
+
+run_periodically(900, update_sessions)
+run_periodically(3600, clear_used_challenges)
+run_periodically(1, update_key_data)
 
 @app.post("/verify_key/")
 async def verify_key(enc_key: EncryptedBase):
