@@ -9,6 +9,7 @@
 - nlohmann json
 - httplib
 - cryptopp
+- xorstr
 
 # Usage example
 ```cpp
