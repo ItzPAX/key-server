@@ -5,6 +5,11 @@
 - Full AES encryption
 - Asynchronous calls
 
+# Dependencies
+- nlohmann json
+- httplib
+- cryptopp
+
 # Usage example
 ```cpp
 #include "server.hpp"
