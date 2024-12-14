@@ -4,14 +4,14 @@ int main()
 {
     //system("pause");
     //
-    std::cout << server::session_valid("TestSession") << "\n";
-    std::cout << server::refresh_session("TestSession") << "\n";
-    std::cout << server::verify_key("KEY-1") << "\n";
-    std::cout << server::get_key_duration("KEY-1") << "\n";
-    std::string session = server::create_session();
+    std::cout << server::session_valid("Test", "TestSession", "Test") << "\n";
+    std::cout << server::refresh_session("Test", "TestSession", "Test") << "\n";
+    std::cout << server::verify_key("KEY", "Test") << "\n";
+    std::cout << server::get_key_duration("KEY", "Test") << "\n";
+    std::string session = server::create_session("Test", "Test");
     std::cout << session << "\n";
-    std::cout << server::session_valid(session) << "\n";
-    std::cout << server::refresh_session(session) << "\n";
+    std::cout << server::session_valid("Test", session, "Test") << "\n";
+    std::cout << server::refresh_session("Test", session, "Test") << "\n";
     return 0;
 
     //nlohmann::json request_body = {
@@ -25,7 +25,7 @@ int main()
     // Example plaintext
     std::string plaintext = R"({"key": "KEY-1", "duration": 1736194472})";
 
-    std::string server_encoded = "9sfrjjVnVP+8aCE+m74KN29ylD4ELI3/Mwe72dxNs4U="; // {'error': 'invalid hash'}
+    std::string server_encoded = "eCqL0WH70e+XhJGGTM52hw8uTH7aj0iZGNmv9oJ0gF8="; // {'error': 'invalid hash'}
 
     std::cout << "Server Encrypted Response (Base64): " << server_encoded << std::endl;
 

@@ -34,3 +34,6 @@
 /rust_client/.vs
 /rust_client/rust_client/x64
 /rust_client/x64
+/rust_loader/.vs
+/rust_loader/rust_loader/x64/Release
+/rust_loader/rust_loader/x64/Debug

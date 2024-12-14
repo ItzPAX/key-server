@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import hashlib
@@ -20,7 +21,8 @@ def initialize_database():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS keys (
             key TEXT PRIMARY KEY,
-            value INTEGER
+            duration INTEGER,
+            hwid TEXT
         )
         """)
         conn.commit()
@@ -29,22 +31,22 @@ def save_key_data(key_data):
     """Save the key data to the database."""
     with sqlite3.connect(DATABASE_FILE) as conn:
         cursor = conn.cursor()
-        for key, value in key_data.items():
+        for key, data in key_data.items():
             cursor.execute("""
-            INSERT INTO keys (key, value)
-            VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """, (key, value))
+            INSERT INTO keys (key, duration, hwid)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET duration = excluded.duration, hwid = excluded.hwid
+            """, (key, data['duration'], data['hwid']))
         conn.commit()
 
 def load_key_data():
     """Load the key data from the database."""
     with sqlite3.connect(DATABASE_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT key, value FROM keys")
+        cursor.execute("SELECT key, duration, hwid FROM keys")
         data = cursor.fetchall()
-        return {key: value for key, value in data}
-
+        return {key: {'duration': duration, 'hwid': hwid} for key, duration, hwid in data}
+    
 initialize_database()
 key_data = load_key_data()
 
@@ -85,7 +87,7 @@ def decrypt_data(encrypted_data: str) -> dict:
     unpadder = padding.PKCS7(128).unpadder()
     plaintext = unpadder.update(padded_data) + unpadder.finalize()
     
-    return eval(plaintext.decode('utf-8'))
+    return json.loads(plaintext.decode('utf-8'))
 
 def generate_response_hash(challenge: str, key: str) -> str:
     if (challenge in deactivated_challenges or not challenge in activated_challenges):
@@ -96,8 +98,14 @@ def generate_response_hash(challenge: str, key: str) -> str:
     combined = f"{challenge}{key}{HASH_SECRET}"
     return hashlib.sha256(combined.encode()).hexdigest().upper()
 
-def verify_hash(request : EncryptedBase) -> bool:
-    expected_hash = generate_response_hash(request['ch'], request['body'])
+def verify_hash(request) -> bool:
+    expected_hash = generate_response_hash(request['ch'], request['key'] + request['hwid'] + request['rng'])
+    if request['rh'] != expected_hash:
+        return False
+    return True
+
+def verify_hash_with_session(request) -> bool:
+    expected_hash = generate_response_hash(request['ch'], request['key'] + request['session'] + request['hwid'] + request['rng'])
     if request['rh'] != expected_hash:
         return False
     return True
@@ -127,24 +135,32 @@ def run_periodically(interval, func):
     thread = threading.Thread(target=wrapper, daemon=True)
     thread.start()
 
-run_periodically(900, update_sessions)
+run_periodically(600, update_sessions)
 run_periodically(3600, clear_used_challenges)
 run_periodically(1, update_key_data)
 
 @app.post("/verify_key/")
 async def verify_key(enc_key: EncryptedBase):
     try:
-        key = decrypt_data(enc_key.data)
+        request = decrypt_data(enc_key.data)
 
-        if (verify_hash(key) == False):
+        if (verify_hash(request) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
-        key = key['body']
+        key = request['key']
         if key in key_data:
-            response = {"key": key}
+            if not key_data[key]['hwid']:
+                key_data[key]['hwid'] = request['hwid']
+                save_key_data(key_data)
+
+            if key_data[key]['hwid'] == request['hwid']:
+                response = {"key": key}
+            else:
+                response = {"error": "hwid mismatch"}
         else:
             response = {"error": "invalid key"}
+
         return {"data": encrypt_data(response)}
 
     except:
@@ -154,15 +170,41 @@ async def verify_key(enc_key: EncryptedBase):
 @app.post("/get_duration/")
 async def get_duration(enc_key: EncryptedBase):
     try:
-        key = decrypt_data(enc_key.data)
+        request = decrypt_data(enc_key.data)
 
-        if (verify_hash(key) == False):
+        if (verify_hash(request) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
-        key = key['body']
+        key = request['key']
         if key in key_data:
-            response = {"duration": key_data[key]}
+            if key_data[key]['hwid'] != request['hwid']:
+                response = {"error": "hwid mismatch"}
+            else:
+                response = {"duration": key_data[key]['duration']}
+        else:
+            response = {"error": "invalid key"}
+        return {"data": encrypt_data(response)}
+
+    except:
+        response = {"error": "unknown"}
+        return {"data": encrypt_data(response)}
+    
+@app.post("/key_time_remaining/")
+async def get_time_remaining(enc_key: EncryptedBase):
+    try:
+        request = decrypt_data(enc_key.data)
+
+        if (verify_hash(request) == False):
+            response = {"error": "invalid hash"}
+            return {"data": encrypt_data(response)}
+
+        key = request['key']
+        if key in key_data:
+            if key_data[key]['hwid'] != request['hwid']:
+                response = {"error": "hwid mismatch"}
+            else:
+                response = {"time_remaining": max(key_data[key]['duration'] - time.time(), 0)}
         else:
             response = {"error": "invalid key"}
         return {"data": encrypt_data(response)}
@@ -174,14 +216,14 @@ async def get_duration(enc_key: EncryptedBase):
 @app.post("/create_session/")
 async def login(enc_base: EncryptedBase):
     try:
-        base = decrypt_data(enc_base.data)
+        request = decrypt_data(enc_base.data)
 
-        if (verify_hash(base) == False):
+        if (verify_hash(request) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
         session_id = str(uuid.uuid4())
-        sessions.append({"session_id": session_id, "created": time.time(), "last_refresh": time.time()})
+        sessions.append({"session_id": session_id, "created": time.time(), "last_refresh": time.time(), "hwid": request['hwid'], "key": request['key']})
         response = {"session": session_id}
         return {"data": encrypt_data(response)}
 
@@ -192,17 +234,18 @@ async def login(enc_base: EncryptedBase):
 @app.post("/refresh_session/")
 async def refresh_session(enc_session: EncryptedBase):
     try:
-        session = decrypt_data(enc_session.data)
+        request = decrypt_data(enc_session.data)
 
-        if (verify_hash(session) == False):
+        if (verify_hash_with_session(request) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
         for sess in sessions:
-            if sess['session_id'] == session['body']:
-                sess['last_refresh'] = time.time()
-                response = {"session": session['body']}
-                return {"data": encrypt_data(response)}
+            if sess['session_id'] == request['session']:
+                if (sess['hwid'] == request['hwid'] or sess['key'] == request['key']):
+                    sess['last_refresh'] = time.time()
+                    response = {"session": request['session']}
+                    return {"data": encrypt_data(response)}
 
         response = {"error": "session not found"}
         return {"data": encrypt_data(response)}
@@ -214,16 +257,17 @@ async def refresh_session(enc_session: EncryptedBase):
 @app.post("/session_valid/")
 async def session_valid(enc_session: EncryptedBase): 
     try:
-        session = decrypt_data(enc_session.data)
+        request = decrypt_data(enc_session.data)
 
-        if (verify_hash(session) == False):
+        if (verify_hash_with_session(request) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
         for sess in sessions:
-            if sess['session_id'] == session['body']:
-                response = {"session": session['body']}
-                return {"data": encrypt_data(response)}
+            if sess['session_id'] == request['session']:
+                if (sess['hwid'] == request['hwid'] or sess['key'] == request['key']):
+                    response = {"session": request['session']}
+                    return {"data": encrypt_data(response)}
 
         response = {"error": "session not found"}
         return {"data": encrypt_data(response)}

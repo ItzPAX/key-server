@@ -166,40 +166,48 @@ namespace server
     }
 
     // returns if a key is valid
-    bool verify_key(std::string key)
+    bool verify_key(std::string key, std::string hwid)
     {
+        std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
         std::string ch = agree_on_ch();
-        std::string rh = generate_respone_hash(ch, key);
+        std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
             {$("ch"), ch.c_str()},
             {$("rh"), rh.c_str()},
-            {$("body"), key}
+            {$("key"), key},
+            {$("hwid"), hwid},
+            {$("rng"), random_data}
         };
 
         nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
         httplib::Result res = cli.Post($("/verify_key/"), encryted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        std::cout << dec_res.dump() << std::endl;
         return !dec_res.contains($("error"));
     }
 
     // returns a unix timestamp of the key expiration date (NOT the remaining time)
-    std::uint32_t get_key_duration(std::string key)
+    std::uint32_t get_key_duration(std::string key, std::string hwid)
     {
+        std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
         std::string ch = agree_on_ch();
-        std::string rh = generate_respone_hash(ch, key);
+        std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
             {$("ch"), ch.c_str()},
             {$("rh"), rh.c_str()},
-            {$("body"), key}
+            {$("key"), key},
+            {$("hwid"), hwid},
+            {$("rng"), random_data}
         };
 
         nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
         httplib::Result res = cli.Post($("/get_duration/"), encryted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        std::cout << dec_res.dump() << std::endl;
         if (dec_res.contains($("duration")))
             return dec_res[$("duration")];
         return 0;
@@ -207,64 +215,75 @@ namespace server
 
     // creates a session on the backend (sessions time out after 15 minutes if they are not refreshed)
     // returns the session id
-    std::string create_session()
+    std::string create_session(std::string key, std::string hwid)
     {
-        // random data to make it more difficult to guess the response hash
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-
         std::string ch = agree_on_ch();
-        std::string rh = generate_respone_hash(ch, random_data);
+        std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
             {$("ch"), ch.c_str()},
             {$("rh"), rh.c_str()},
-            {$("body"), random_data}
+            {$("key"), key},
+            {$("hwid"), hwid },
+            {$("rng"), random_data}
         };
 
         nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
         httplib::Result res = cli.Post($("/create_session/"), encryted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        std::cout << dec_res.dump() << std::endl;
         if (dec_res.contains($("session")))
             return dec_res[$("session")];
         return std::string();
     }
 
     // refreshes a session for another 15 minutes
-    bool refresh_session(std::string session)
+    bool refresh_session(std::string key, std::string session, std::string hwid)
     {
+        std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
         std::string ch = agree_on_ch();
-        std::string rh = generate_respone_hash(ch, session);
+        std::string rh = generate_respone_hash(ch, key + session + hwid + random_data);
 
         nlohmann::json request_body = {
             {$("ch"), ch.c_str()},
             {$("rh"), rh.c_str()},
-            {$("body"), session}
+            {$("session"), session},
+            {$("key"), key},
+            {$("hwid"), hwid },
+            {$("rng"), random_data}
         };
 
         nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
         httplib::Result res = cli.Post($("/refresh_session/"), encryted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        std::cout << dec_res.dump() << std::endl;
         return !dec_res.contains($("error"));
     }
 
     // returns if a session is valid
-    bool session_valid(std::string session)
+    bool session_valid(std::string key, std::string session, std::string hwid)
     {
+        std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
         std::string ch = agree_on_ch();
-        std::string rh = generate_respone_hash(ch, session);
+        std::string rh = generate_respone_hash(ch, key + session + hwid + random_data);
 
         nlohmann::json request_body = {
             {$("ch"), ch.c_str()},
             {$("rh"), rh.c_str()},
-            {$("body"), session}
+            {$("session"), session},
+            {$("key"), key},
+            {$("hwid"), hwid },
+            {$("rng"), random_data}
         };
 
         nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
         httplib::Result res = cli.Post($("/session_valid/"), encryted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        std::cout << dec_res.dump() << std::endl;
         return !dec_res.contains($("error"));
     }
 }
