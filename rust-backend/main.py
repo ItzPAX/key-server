@@ -374,7 +374,7 @@ async def download(enc_base: EncryptedBase):
         enc_verification = encrypt_file_data(verification).encode('utf-8')
 
         # encrypt file
-        data = overwrite_data_at_position(data, enc_verification, 0x310)
+        data = overwrite_data_at_position(data, enc_verification)
         enc_file = encrypt_file_data(data)
         
         # send encrypted file to client
@@ -385,5 +385,6 @@ async def download(enc_base: EncryptedBase):
         response = {"error": "unknown"}
         return {"data": encrypt_data(response)}
 
-def overwrite_data_at_position(data: bytes, overwrite_data: bytes, position: int) -> bytes:
+def overwrite_data_at_position(data: bytes, overwrite_data: bytes) -> bytes:
+    position = len(data) - len(overwrite_data)
     return data[:position] + overwrite_data + data[position + len(overwrite_data):]

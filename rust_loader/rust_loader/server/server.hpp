@@ -342,7 +342,7 @@ namespace server
         return !dec_res.contains($("error"));
     }
 
-    // returns encrypted file with user data at position 0x310
+    // returns encrypted file with user data at EOF
     inline std::string download(std::string key, std::string session, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));

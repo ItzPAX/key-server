@@ -79,8 +79,7 @@ namespace auth
 		{
 			return false;
 		}
-
-		launcher::ManualMapExe(host_handle, (BYTE*)decrypted_pe.data(), decrypted_pe.size(), false);
+		launcher::ManualMapExe(host_handle, (BYTE*)decrypted_pe.data(), decrypted_pe.size());
 
 		return true;
 	}

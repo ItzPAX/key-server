@@ -23,6 +23,6 @@ namespace launcher
 	};
 
 	HANDLE LaunchHostProcess(std::string host_proc);
-	bool ManualMapExe(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize, bool ClearHeader = false, bool ClearNonNeededSections = true, bool AdjustProtections = true);
+	bool ManualMapExe(HANDLE hProc, BYTE* pSrcData, SIZE_T FileSize, bool ClearHeader = false, bool ClearNonNeededSections = false, bool AdjustProtections = true);
 	void __stdcall Shellcode(MANUAL_MAPPING_DATA* pData);
 }
