@@ -110,6 +110,24 @@ namespace server
             return decrypted_data_json;
         }
 
+        inline nlohmann::json Data_Encrypt(nlohmann::json& server_req, nlohmann::json& ch_req)
+        {
+            std::string req_text = server_req.dump();
+            std::string encrypted = server::encryption::AES_Encrypt(req_text);
+            std::string encoded = server::encryption::Base64_Encode(encrypted);
+
+            if (!encoded.empty() && encoded.back() == '\n') {
+                encoded.pop_back();
+            }
+
+            nlohmann::json request_body = {
+                {$("data"), encoded},
+                {$("data2"), ch_req}
+            };
+
+            return request_body;
+        }
+
         inline nlohmann::json Data_Encrypt(nlohmann::json& server_req)
         {
             std::string req_text = server_req.dump();
@@ -121,41 +139,30 @@ namespace server
             }
 
             nlohmann::json request_body = {
-                { $("data"), encoded }
+                { 
+                    $("data"), encoded
+                }
             };
 
             return request_body;
         }
     }
 
-    // returns the agreed upon challenge to solve
-    // the challenge will only be valid for one request
-    inline std::string agree_on_ch()
+    inline nlohmann::json generate_ch_data(std::string& agreed_ch)
     {
         std::string ch = encryption::SHA256_HASH(std::to_string(mt()));
         std::string rh = encryption::SHA256_HASH(ch);
 
-        while (true)
-        {
-            nlohmann::json request_body = {
-                {$("ch"), ch.c_str()},
-                {$("rh"), rh.c_str()},
-                {$("body"), encryption::SHA256_HASH(std::to_string(mt()))}
-            };
+        nlohmann::json request_body = {
+            {$("ch"), ch.c_str()},
+            {$("rh"), rh.c_str()},
+            {$("body"), encryption::SHA256_HASH(std::to_string(mt()))}
+        };
 
-            nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
 
-            httplib::Result res = cli.Post($("/is_ch_valid/"), encryted_req.dump(), $("application/json"));
-
-            if (!encryption::Data_Decrypt(res).contains($("error")))
-                break;
-
-            ch = encryption::SHA256_HASH(std::to_string(mt()));
-            rh = encryption::SHA256_HASH(ch);
-        }
-
-        // return variation of the agreed challenge
-        return encryption::SHA256_HASH(rh);
+        agreed_ch = encryption::SHA256_HASH(rh);
+        return encryted_req;
     }
 
     // returns the response hash the server can use to validate the request
@@ -169,7 +176,8 @@ namespace server
     inline bool verify_key(std::string key, std::string hwid, std::string& error_msg)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -180,10 +188,13 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/verify_key/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/verify_key/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        if (dec_res.contains($("ch_taken")))
+            verify_key(key, hwid, error_msg);
+
         if (!dec_res.contains($("error")))
             return true;
 
@@ -195,7 +206,8 @@ namespace server
     inline std::uint32_t get_key_duration(std::string key, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -206,10 +218,13 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/get_duration/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/get_duration/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        if (dec_res.contains($("ch_taken")))
+            get_key_duration(key, hwid);
+
         if (dec_res.contains($("duration")))
             return dec_res[$("duration")];
         return 0;
@@ -219,7 +234,8 @@ namespace server
     inline std::uint32_t get_key_time_remaining(std::string key, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -230,14 +246,15 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/key_time_remaining/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/key_time_remaining/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        if (dec_res.contains($("ch_taken")))
+            get_key_time_remaining(key, hwid);
+
         if (dec_res.contains($("time_remaining")))
-        {
             return dec_res[$("time_remaining")].get<std::uint32_t>();
-        }
         return 0;
     }
 
@@ -246,7 +263,8 @@ namespace server
     inline std::string create_session(std::string key, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -257,10 +275,13 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/create_session/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/create_session/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        if (dec_res.contains($("ch_taken")))
+            create_session(key, hwid);
+
         if (dec_res.contains($("session")))
             return dec_res[$("session")];
         return std::string();
@@ -270,7 +291,8 @@ namespace server
     inline bool refresh_session(std::string key, std::string session, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + session + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -282,10 +304,14 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/refresh_session/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/refresh_session/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+
+        if (dec_res.contains($("ch_taken")))
+            refresh_session(key, session, hwid);
+
         return !dec_res.contains($("error"));
     }
 
@@ -293,7 +319,8 @@ namespace server
     inline bool session_valid(std::string key, std::string session, std::string hwid)
     {
         std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
-        std::string ch = agree_on_ch();
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
         std::string rh = generate_respone_hash(ch, key + session + hwid + random_data);
 
         nlohmann::json request_body = {
@@ -305,10 +332,44 @@ namespace server
             {$("rng"), random_data}
         };
 
-        nlohmann::json encryted_req = encryption::Data_Encrypt(request_body);
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
 
-        httplib::Result res = cli.Post($("/session_valid/"), encryted_req.dump(), $("application/json"));
+        httplib::Result res = cli.Post($("/session_valid/"), encrypted_req.dump(), $("application/json"));
         nlohmann::json dec_res = encryption::Data_Decrypt(res);
+        if (dec_res.contains($("ch_taken")))
+            session_valid(key, session, hwid);
+
         return !dec_res.contains($("error"));
+    }
+
+    // returns encrypted file with user data at position 0x310
+    inline std::string download(std::string key, std::string session, std::string hwid)
+    {
+        std::string random_data = encryption::SHA256_HASH(std::to_string(mt()));
+        std::string ch;
+        nlohmann::json ch_json = generate_ch_data(ch);
+        std::string rh = generate_respone_hash(ch, key + session + hwid + random_data);
+
+        nlohmann::json request_body = {
+            {$("ch"), ch.c_str()},
+            {$("rh"), rh.c_str()},
+            {$("session"), session},
+            {$("key"), key},
+            {$("hwid"), hwid },
+            {$("rng"), random_data}
+        };
+
+        nlohmann::json encrypted_req = encryption::Data_Encrypt(request_body, ch_json);
+
+        httplib::Result res = cli.Post($("/download/"), encrypted_req.dump(), $("application/json"));
+        nlohmann::json dec_res = encryption::Data_Decrypt(res);
+
+        if (dec_res.contains($("ch_taken")))
+            download(key, session, hwid);
+
+        if (dec_res.contains($("file")))
+            return dec_res[$("file")];
+
+        return $("BIGGER");
     }
 }

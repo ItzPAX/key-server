@@ -49,9 +49,6 @@ namespace auth
 
 		loader_data::log.push_back($("Successfully logged in!"));
 
-		user_data::is_authenticated = true;
-		loader_data::processing_request = false;
-
 		// get user data
 		user_data::expiry_date = server::get_key_duration(user_data::key, user_data::hwid);
 		if (user_data::expiry_date == 0) // shouldn't ever happen but just in case
@@ -63,6 +60,27 @@ namespace auth
 
 		std::string s = $("Sub valid until ") + user_data::expiry_date_str;
 		loader_data::log.push_back(s);
+
+		user_data::is_authenticated = true;
+		loader_data::processing_request = false;
+
+		return true;
+	}
+
+	inline bool load_cheat()
+	{
+		loader_data::enc_file_b64 = server::download(user_data::key, user_data::session, user_data::hwid);
+		std::string encrypted_pe = server::encryption::Base64_Decode(loader_data::enc_file_b64);
+		std::string decrypted_pe = server::encryption::AES_Decrypt(encrypted_pe);
+		loader_data::processing_request = false;
+
+		HANDLE host_handle = launcher::LaunchHostProcess($("C:\\Windows\\System32\\svchost.exe"));
+		if (host_handle == (HANDLE)0)
+		{
+			return false;
+		}
+
+		launcher::ManualMapExe(host_handle, (BYTE*)decrypted_pe.data(), decrypted_pe.size(), false);
 
 		return true;
 	}

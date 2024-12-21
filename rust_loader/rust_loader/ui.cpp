@@ -251,7 +251,25 @@ void ui::render_main()
     // Load Button Child
     ImGui::SameLine();
     ImGui::BeginChildFrame(4, ImVec2(100, 200));
-    ImGui::Button($("Load"), ImVec2(-1, 100 - style.ItemSpacing.y - 1)); // TOOD: LOAD PROCESS
+    bool flags_added = false;
+    if (loader_data::processing_request)
+    {
+        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+        flags_added = true;
+    }
+    if (ImGui::Button($("Load"), ImVec2(-1, 100 - style.ItemSpacing.y - 1)))
+    {
+        loader_data::processing_request = true;
+        HANDLE h = CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)auth::load_cheat, NULL, NULL, NULL);
+        if (h)
+            CloseHandle(h);
+    }
+    if (loader_data::processing_request && flags_added)
+    {
+        ImGui::PopItemFlag();
+        ImGui::PopStyleVar();
+    }
     if (ImGui::Button($("Exit"), ImVec2(-1, 100 - style.ItemSpacing.y - 1)))
         exit();
     ImGui::EndChildFrame();

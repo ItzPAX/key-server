@@ -63,10 +63,25 @@ IV = b'\x7f\xe6\x55\xf1\xfd\x1a\x48\xc3\x68\x6f\xd4\x9e\x57\x96\x6d\x49'
 
 class EncryptedBase(BaseModel):
     data: str
+    data2: dict
+
+class CHBase(BaseModel):
+    data: str
 
 app = FastAPI()
 
 # encryption
+def encrypt_file_data(data: bytes) -> str:
+    cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV))
+    encryptor = cipher.encryptor()
+    
+    padder = padding.PKCS7(128).padder()
+    padded_data = padder.update(data) + padder.finalize()
+    
+    ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+    
+    return base64.b64encode(ciphertext).decode('utf-8')
+
 def encrypt_data(data: dict) -> str:
     plaintext = str(data).encode('utf-8')
     cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV))
@@ -139,9 +154,35 @@ run_periodically(600, update_sessions)
 run_periodically(3600, clear_used_challenges)
 run_periodically(1, update_key_data)
 
+async def activate_ch(enc_base):
+    try:
+        base = decrypt_data(enc_base['data'])
+
+        # check if request is valid
+        rh = hashlib.sha256(base['ch'].encode()).hexdigest().upper()
+        if (rh != base['rh'] or base['ch'] in used_challenge_activators):
+            return False
+
+        actual_ch = hashlib.sha256(rh.encode()).hexdigest().upper()
+
+        # we try to activate an already activated challenge that hasnt been consumed yet or challenge has already been used
+        if (actual_ch in deactivated_challenges or actual_ch in activated_challenges):
+            return False
+
+        used_challenge_activators.append(base['ch'])
+        activated_challenges.append(actual_ch)
+        return True
+
+    except:
+        return False
+
 @app.post("/verify_key/")
 async def verify_key(enc_key: EncryptedBase):
     try:
+        if not await activate_ch(enc_key.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_key.data)
 
         if (verify_hash(request) == False):
@@ -170,6 +211,10 @@ async def verify_key(enc_key: EncryptedBase):
 @app.post("/get_duration/")
 async def get_duration(enc_key: EncryptedBase):
     try:
+        if not await activate_ch(enc_key.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_key.data)
 
         if (verify_hash(request) == False):
@@ -193,6 +238,10 @@ async def get_duration(enc_key: EncryptedBase):
 @app.post("/key_time_remaining/")
 async def get_time_remaining(enc_key: EncryptedBase):
     try:
+        if not await activate_ch(enc_key.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_key.data)
 
         if (verify_hash(request) == False):
@@ -216,6 +265,10 @@ async def get_time_remaining(enc_key: EncryptedBase):
 @app.post("/create_session/")
 async def login(enc_base: EncryptedBase):
     try:
+        if not await activate_ch(enc_base.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_base.data)
 
         if (verify_hash(request) == False):
@@ -234,6 +287,10 @@ async def login(enc_base: EncryptedBase):
 @app.post("/refresh_session/")
 async def refresh_session(enc_session: EncryptedBase):
     try:
+        if not await activate_ch(enc_session.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_session.data)
 
         if (verify_hash_with_session(request) == False):
@@ -257,6 +314,10 @@ async def refresh_session(enc_session: EncryptedBase):
 @app.post("/session_valid/")
 async def session_valid(enc_session: EncryptedBase): 
     try:
+        if not await activate_ch(enc_session.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         request = decrypt_data(enc_session.data)
 
         if (verify_hash_with_session(request) == False):
@@ -276,29 +337,53 @@ async def session_valid(enc_session: EncryptedBase):
         response = {"error": "unknown"}
         return {"data": encrypt_data(response)}
 
-@app.post("/is_ch_valid/")
-async def is_ch_valid(enc_base: EncryptedBase):
+
+@app.post("/download/")
+async def download(enc_base: EncryptedBase):
     try:
+        if not await activate_ch(enc_base.data2):
+            response = {"ch_taken": "challenge used up"}
+            return {"data": encrypt_data(response)}
+
         base = decrypt_data(enc_base.data)
 
-        # check if request is valid
-        rh = hashlib.sha256(base['ch'].encode()).hexdigest().upper()
-        if (rh != base['rh'] or base['ch'] in used_challenge_activators):
+        # check if everything so far is valid and setup correctly
+        if (verify_hash_with_session(base) == False):
             response = {"error": "invalid hash"}
             return {"data": encrypt_data(response)}
 
-        actual_ch = hashlib.sha256(rh.encode()).hexdigest().upper()
-
-        # we try to activate an already activated challenge that hasnt been consumed yet or challenge has already been used
-        if (actual_ch in deactivated_challenges or actual_ch in activated_challenges):
-            response = {"error": "invalid challenge"}
+        if not await session_valid(enc_base):
+            response = {"error": "invalid session"}
             return {"data": encrypt_data(response)}
 
-        used_challenge_activators.append(base['ch'])
-        activated_challenges.append(actual_ch)
-        response = {"status": base['ch']}
+        if not await verify_key(enc_base):
+            response = {"error": "invalid key"}
+            return {"data": encrypt_data(response)}
+
+        if await get_time_remaining(enc_base) == 0:
+            response = {"error": "expired key"}
+            return {"data": encrypt_data(response)}
+
+        # load file
+        in_file = open("rust_ext.exe", "rb")
+        data = in_file.read()
+        in_file.close()
+
+        # write encrypted user data into file
+        verification = ":".join([base['key'], base['session'], base['hwid']]).encode('utf-8')
+        enc_verification = encrypt_file_data(verification).encode('utf-8')
+
+        # encrypt file
+        data = overwrite_data_at_position(data, enc_verification, 0x310)
+        enc_file = encrypt_file_data(data)
+        
+        # send encrypted file to client
+        response = {"file": enc_file}
         return {"data": encrypt_data(response)}
 
     except:
         response = {"error": "unknown"}
         return {"data": encrypt_data(response)}
+
+def overwrite_data_at_position(data: bytes, overwrite_data: bytes, position: int) -> bytes:
+    return data[:position] + overwrite_data + data[position + len(overwrite_data):]

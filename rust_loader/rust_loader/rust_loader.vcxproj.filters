@@ -23,6 +23,9 @@
     <Filter Include="image_data">
       <UniqueIdentifier>{a27ee4f8-585e-424f-a3f5-d4e23c7e5b3e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="launcher">
+      <UniqueIdentifier>{19213cc0-725e-4713-87fc-1defce9d4edf}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="server\httplib.h">
@@ -77,6 +80,9 @@
     <ClInclude Include="hwid.hpp">
       <Filter>auth</Filter>
     </ClInclude>
+    <ClInclude Include="launcher.hpp">
+      <Filter>launcher</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
@@ -103,6 +109,9 @@
     </ClCompile>
     <ClCompile Include="imgui\imgui_widgets.cpp">
       <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="launcher.cpp">
+      <Filter>launcher</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

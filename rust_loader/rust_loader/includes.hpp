@@ -25,10 +25,12 @@ namespace loader_data
 	inline std::string auth_errors;
 	inline std::vector<std::string> log;
 	inline int old_log_size = 0;
+	inline std::string enc_file_b64;
 }
 
 #include "image_data.h"
 #include "server/server.hpp"
 #include "utils.hpp"
 #include "ui.h"
+#include "launcher.hpp"
 #include "auth.hpp"
